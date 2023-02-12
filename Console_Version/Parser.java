@@ -1,318 +1,333 @@
-import java.io.*; import java.util.ArrayList;
- 
-// парсер (містить по 1 процедурі
-// (основаній на граматиці із вилученою лівою рекурсією 
-// із початкової граматики) для кожного нетермінала)
-public class Parser {
-	private Token look;   // попередній перегляд
-	Table top = null;    // поточна або верхня таблиця
-	static int label = 0; // номер поточної мітки
-	static int blockId = 0; // номер поточного блоку
-	ArrayList<RenamedId> unPush = new ArrayList<RenamedId>(); // список переприсвоєних змінних у внутрішньому блоці
-	public Lexer lex;    // лексичний аналізатор
-	public FileWriter out;
-	String dataseg = "MODEL SMALL\nSTACK 100h\n\nDATASEG\n";
-	String codeseg = "ENDS\n\nCODESEG\nMain:\n\tMOV AX, @data\n\tMOV DS, AX\n\n\t";
-	
-	public Parser(String inFile, String outFile) throws IOException {
-		lex =  new Lexer(inFile);
-		out = new  FileWriter(outFile);
-		move(); 
-	}
+/*     */ import java.io.IOException;
+/*     */ import java.util.ArrayList;
+/*     */ import javax.swing.JOptionPane;
+/*     */ import javax.swing.JTextArea;
+/*     */ 
+/*     */ 
+/*     */ 
+/*     */ 
+/*     */ public class Parser
+/*     */ {
+/*     */   private Token look;
+/*  12 */   Table top = null;
+/*  13 */   static int label = 0;
+/*  14 */   static int blockId = 0;
+/*     */   static boolean err = false;
+/*  16 */   ArrayList<RenamedId> unPush = new ArrayList<>();
+/*     */   public Lexer lex;
+/*     */   public JTextArea out;
+/*  19 */   String dataseg = "MODEL SMALL\nSTACK 100h\n\nDATASEG\n";
+/*  20 */   String codeseg = "ENDS\n\nCODESEG\nMain:\n\tMOV AX, @data\n\tMOV DS, AX\n\n\t";
+/*     */   
+/*     */   public Parser(String i, JTextArea o) throws IOException {
+/*  23 */     this.lex = new Lexer(i); this.out = o; move();
+/*     */   }
+/*     */   void move() throws IOException {
+/*  26 */     this.look = this.lex.scan();
+/*     */   }
+/*     */   void error(String s) {
+/*  29 */     JOptionPane.showMessageDialog(null, "РІ СЂСЏРґРєСѓ " + Lexer.line + ": " + s);
+/*  30 */     err = true;
+/*     */   }
+/*     */   
+/*     */   void match(int t) throws IOException {
+/*  34 */     if (this.look.tag == t) { move(); }
+/*  35 */     else { error("СЃРёРЅС‚Р°РєСЃРёС‡РЅР° РїРѕРјРёР»РєР°"); }
+/*     */   
+/*     */   }
+/*     */   public void program() throws IOException {
+/*  39 */     block();
+/*  40 */     this.out.setText(String.valueOf(this.dataseg) + this.codeseg + "\n\tMOV AX,4C00h\n\tINT 21h\nEND Main\nEND");
+/*     */   }
+/*     */   
+/*     */   void block() throws IOException {
+/*  44 */     blockId++;
+/*  45 */     match(123);
+/*  46 */     Table savedTable = this.top;
+/*  47 */     this.top = new Table(this.top);
+/*  48 */     for (; this.look.tag != 125; stmt());
+/*  49 */     match(125);
+/*  50 */     for (int i = this.unPush.size() - 1; i >= 0; i--) {
+/*  51 */       RenamedId thisId = this.unPush.get(i);
+/*  52 */       if (blockId == thisId.blockNum)
+/*  53 */       { this.codeseg = String.valueOf(this.codeseg) + "POP DX\n\tMOV " + thisId.id + ", DL\n\t";
+/*  54 */         this.unPush.remove(i); }
+/*  55 */       else if (blockId > thisId.blockNum) { break; }
+/*     */     
+/*  57 */     }  this.top = savedTable;
+/*  58 */     blockId--;
+/*     */   }
+/*     */   
+/*     */   void stmt() throws IOException {
+/*  62 */     switch (this.look.tag) {
+/*     */       case 59:
+/*  64 */         move(); return;
+/*     */       case 123:
+/*  66 */         block(); return;
+/*     */       case 256:
+/*  68 */         decls(); return;
+/*     */       case 261:
+/*  70 */         ifConstr(); return;
+/*     */       case 259:
+/*  72 */         doWhileConstr(); return;
+/*     */       case 260:
+/*  74 */         whileConstr(); return;
+/*     */     } 
+/*  76 */     rightConstr();
+/*     */   }
+/*     */ 
+/*     */   
+/*     */   void decls() throws IOException {
+/*  81 */     while (this.look.tag == 256) {
+/*  82 */       Id id = new Id();
+/*  83 */       id.type = this.look.toString();
+/*  84 */       match(256);
+/*  85 */       id.lexeme = this.look.toString();
+/*  86 */       boolean initialized = false;
+/*  87 */       if (this.top.get(this.look) != null) {
+/*  88 */         this.codeseg = String.valueOf(this.codeseg) + "MOV DL, " + id.lexeme + "\n\tPUSH DX\n\t";
+/*  89 */         this.unPush.add(new RenamedId(id.lexeme, blockId));
+/*  90 */         initialized = true;
+/*     */       } 
+/*  92 */       this.top.put(this.look, id);
+/*  93 */       if (!initialized) this.dataseg = String.valueOf(this.dataseg) + "\t" + this.look.toString() + " DB "; 
+/*  94 */       match(257);
+/*  95 */       match(61);
+/*  96 */       if (!initialized) { this.dataseg = String.valueOf(this.dataseg) + this.look.toString() + "\n"; }
+/*  97 */       else { this.codeseg = String.valueOf(this.codeseg) + "MOV DL, " + this.look.toString() + "\n\tMOV " + ((RenamedId)this.unPush.get(this.unPush.size() - 1)).id + ", DL\n\t"; }
+/*  98 */        match(258);
+/*  99 */       match(59);
+/*     */     } 
+/*     */   }
+/*     */   
+/*     */   void ifConstr() throws IOException {
+/* 104 */     match(261);
+/* 105 */     match(40);
+/* 106 */     logicExpr();
+/* 107 */     match(41);
+/* 108 */     stmt();
+/* 109 */     if (this.look.tag == 262) {
+/* 110 */       this.codeseg = String.valueOf(this.codeseg) + "JMP L" + (label + 2) + "\n\t\nL" + ++label + ":\n\t";
+/* 111 */       move();
+/* 112 */       stmt();
+/*     */     } 
+/* 114 */     this.codeseg = String.valueOf(this.codeseg) + "\nL" + ++label + ":\n\t";
+/*     */   }
+/*     */   
+/*     */   void whileConstr() throws IOException {
+/* 118 */     int doLabel = ++label;
+/* 119 */     this.codeseg = String.valueOf(this.codeseg) + "\nL" + doLabel + ":\n\t";
+/* 120 */     match(260);
+/* 121 */     match(40);
+/* 122 */     logicExpr();
+/* 123 */     match(41);
+/* 124 */     stmt();
+/* 125 */     this.codeseg = String.valueOf(this.codeseg) + "JMP L" + doLabel + "\n\nL" + ++label + ":\n\t";
+/*     */   }
+/*     */   
+/*     */   void doWhileConstr() throws IOException {
+/* 129 */     blockId++;
+/* 130 */     int doLabel = ++label;
+/* 131 */     this.codeseg = String.valueOf(this.codeseg) + "\nL" + doLabel + ":\n\t";
+/* 132 */     match(259);
+/* 133 */     Table savedTable = this.top;
+/* 134 */     this.top = new Table(this.top);
+/* 135 */     for (; this.look.tag != 260; stmt());
+/* 136 */     match(260);
+/* 137 */     match(40);
+/* 138 */     logicExpr();
+/* 139 */     match(41); int i;
+/* 140 */     for (i = this.unPush.size() - 1; i >= 0; i--) {
+/* 141 */       RenamedId thisId = this.unPush.get(i);
+/* 142 */       if (blockId == thisId.blockNum)
+/* 143 */       { this.codeseg = String.valueOf(this.codeseg) + "POP DX\n\tMOV " + thisId.id + ", DL\n\t"; }
+/* 144 */       else if (blockId > thisId.blockNum) { break; }
+/*     */     
+/* 146 */     }  this.codeseg = String.valueOf(this.codeseg) + "JMP L" + doLabel + "\n\nL" + ++label + ":\n\t";
+/* 147 */     for (i = this.unPush.size() - 1; i >= 0; i--) {
+/* 148 */       RenamedId thisId = this.unPush.get(i);
+/* 149 */       if (blockId == thisId.blockNum)
+/* 150 */       { this.codeseg = String.valueOf(this.codeseg) + "POP DX\n\tMOV " + thisId.id + ", DL\n\t";
+/* 151 */         this.unPush.remove(i); }
+/* 152 */       else if (blockId > thisId.blockNum) { break; }
+/*     */     
+/* 154 */     }  this.top = savedTable;
+/* 155 */     blockId--;
+/*     */   }
+/*     */   
+/*     */   void rightConstr() throws IOException {
+/* 159 */     Id id = this.top.get(this.look);
+/* 160 */     if (id == null) error(String.valueOf(this.look.toString()) + " РЅРµ РѕРіРѕР»РѕС€РµРЅР°"); 
+/* 161 */     if (id.type.equals("const")) {
+/* 162 */       error(String.valueOf(this.look.toString()) + " РєРѕРЅСЃС‚Р°РЅС‚Р°, РІРё РЅРµ РјРѕР¶РµС‚Рµ Р·РјС–РЅРёС‚Рё С—С—");
+/*     */     }
+/* 164 */     match(257);
+/* 165 */     if (this.look.tag == 266) {
+/* 166 */       this.codeseg = String.valueOf(this.codeseg) + "INC " + id.lexeme + "\n\t";
+/* 167 */       move(); return;
+/*     */     } 
+/* 169 */     match(61);
+/* 170 */     arithmeticExpr(id);
+/* 171 */     this.codeseg = String.valueOf(this.codeseg) + "MOV " + id + ", AL\n\t";
+/* 172 */     match(59);
+/*     */   }
+/*     */ 
+/*     */   
+/*     */   void arithmeticExpr(Id id) throws IOException {
+/* 177 */     String op1 = "", op2 = "", op = "";
+/* 178 */     boolean bracket = false;
+/* 179 */     op1 = leftArithmeticExpr(id, op1);
+/* 180 */     rightArithmeticExpr(id, op, op1, op2, bracket);
+/*     */   }
+/*     */   
+/*     */   String leftArithmeticExpr(Id id, String op1) throws IOException {
+/* 184 */     boolean constant = false;
+/* 185 */     Id lookId = this.top.get(this.look);
+/* 186 */     if (this.look.tag == 258 || this.look.tag == 257)
+/* 187 */     { if (this.look.tag == 257) {
+/* 188 */         if (lookId == null) error(String.valueOf(this.look.toString()) + " РЅРµ РѕРіРѕР»РѕС€РµРЅР°"); 
+/* 189 */         if (lookId.type.equals("const")) constant = true; 
+/*     */       } 
+/* 191 */       op1 = this.look.toString(); move(); }
+/* 192 */     else if (this.look.tag == 256)
+/* 193 */     { error("СЃРёРЅС‚Р°РєСЃРёС‡РЅР° РїРѕРјРёР»РєР°. \nРћРіРѕР»РѕС€СѓРІР°С‚Рё Р·РјС–РЅРЅС– РІ С†СЊРѕРјСѓ РјС–СЃС†С– РЅРµ РјРѕР¶РЅР°!\n РўРё РјРµРЅС– РЅР°Р±СЂРёРґ, РїСЂРѕС‰Р°РІР°Р№, РЅРµРІРґР°С…Р°!");
+/* 194 */       System.exit(0); }
+/* 195 */     else { error("СЃРёРЅС‚Р°РєСЃРёС‡РЅР° РїРѕРјРёР»РєР°. РћС‡С–РєСѓС”С‚СЊСЃСЏ С‡РёСЃР»Рѕ, Р·РјС–РЅРЅР° Р°Р±Рѕ РєРѕРЅСЃС‚Р°РЅС‚Р°"); }
+/* 196 */      if (this.look.tag == 266) {
+/* 197 */       if (constant) error(String.valueOf(lookId.toString()) + " РєРѕРЅСЃС‚Р°РЅС‚Р°. Р‡С— РЅРµ РјРѕР¶РЅР° Р·РјС–РЅСЋРІР°С‚Рё"); 
+/* 198 */       op1 = id.lexeme; this.codeseg = String.valueOf(this.codeseg) + "INC " + op1 + "\n\t"; move();
+/* 199 */     }  this.codeseg = String.valueOf(this.codeseg) + "MOV AL, " + op1 + "\n\t";
+/* 200 */     return op1;
+/*     */   }
+/*     */   
+/*     */   void rightArithmeticExpr(Id id, String op, String op1, String op2, boolean bracket) throws IOException {
+/* 204 */     while (this.look.tag == 43 || this.look.tag == 45) {
+/* 205 */       switch (this.look.tag) {
+/*     */         case 43:
+/* 207 */           op = "+"; move(); break;
+/*     */         case 45:
+/* 209 */           op = "-"; move(); break;
+/*     */       } 
+/* 211 */       boolean constant = false;
+/* 212 */       Id lookId = this.top.get(this.look);
+/* 213 */       if (this.look.tag == 258 || this.look.tag == 257)
+/* 214 */       { if (this.look.tag == 257) {
+/* 215 */           if (lookId == null) error(String.valueOf(this.look.toString()) + " РЅРµ РѕРіРѕР»РѕС€РµРЅР°"); 
+/* 216 */           if (lookId.type.equals("const")) constant = true; 
+/*     */         } 
+/* 218 */         op2 = this.look.toString(); move(); }
+/* 219 */       else if (this.look.tag == 40)
+/* 220 */       { op = brackets(op, id); bracket = true; }
+/* 221 */       else if (this.look.tag == 256)
+/* 222 */       { error("СЃРёРЅС‚Р°РєСЃРёС‡РЅР° РїРѕРјРёР»РєР°. РќРµ РјРѕР¶РЅР° РѕРіРѕР»РѕС€СѓРІР°С‚Рё Р·РјС–РЅРЅС– РІ С†СЊРѕРјСѓ РјС–СЃС†С–!"); }
+/* 223 */       else { error("СЃРёРЅС‚Р°РєСЃРёС‡РЅР° РїРѕРјРёР»РєР°. РћС‡С–РєСѓС”С‚СЊСЃСЏ РґСѓР¶РєР°, С‡РёСЃР»Рѕ, Р·РјС–РЅРЅР° Р°Р±Рѕ РєРѕРЅСЃС‚Р°РЅС‚Р°"); }
+/* 224 */        if (this.look.tag == 266) {
+/* 225 */         if (constant) error(String.valueOf(lookId.toString()) + " РєРѕРЅСЃС‚Р°РЅС‚Р°. Р‡С— РЅРµ РјРѕР¶РЅР° Р·РјС–РЅСЋРІР°С‚Рё!"); 
+/* 226 */         op1 = id.lexeme; this.codeseg = String.valueOf(this.codeseg) + "INC " + op1 + "\n\t"; move();
+/*     */       }  String str;
+/* 228 */       switch ((str = op).hashCode()) { case 43: if (!str.equals("+"))
+/*     */             continue; 
+/* 230 */           if (!bracket)
+/* 231 */           { this.codeseg = String.valueOf(this.codeseg) + "MOV BL, " + op2 + "\n\t"; }
+/* 232 */           else { bracket = false; }
+/* 233 */            this.codeseg = String.valueOf(this.codeseg) + "ADD AL, BL\n\t";
+/*     */         case 45: if (!str.equals("-"))
+/* 235 */             continue;  if (!bracket)
+/* 236 */           { this.codeseg = String.valueOf(this.codeseg) + "MOV BL, " + op2 + "\n\t"; }
+/* 237 */           else { bracket = false; }
+/* 238 */            this.codeseg = String.valueOf(this.codeseg) + "SUB AL, BL\n\t"; }
+/*     */     
+/*     */     } 
+/*     */   }
+/*     */   
+/*     */   String brackets(String op, Id id) throws IOException {
+/* 244 */     String op1 = "", op2 = "", oldOp = op;
+/* 245 */     boolean bracket = false;
+/* 246 */     this.codeseg = String.valueOf(this.codeseg) + "PUSH AX\n\t"; move();
+/* 247 */     op1 = leftArithmeticExpr(id, op1);
+/* 248 */     rightArithmeticExpr(id, op, op1, op2, bracket);
+/* 249 */     while (this.look.tag != 41)
+/* 250 */       rightArithmeticExpr(id, op, op1, op2, bracket); 
+/* 251 */     move(); this.codeseg = String.valueOf(this.codeseg) + "MOV BL, AL\n\tPOP AX\n\t"; return oldOp;
+/*     */   }
+/*     */   
+/*     */   void logicExpr() throws IOException {
+/* 255 */     compareExpr();
+/* 256 */     while (this.look.tag == 265 || this.look.tag == 264) {
+/* 257 */       if (this.look.tag == 265) {
+/* 258 */         this.codeseg = String.valueOf(this.codeseg) + "\n\tJMP L" + (label + 2) + "\nL" + ++label + ":\n\t";
+/* 259 */         move(); label++; compareExpr();
+/* 260 */         this.codeseg = String.valueOf(this.codeseg) + "\nL" + label + ":\n\t"; continue;
+/*     */       } 
+/* 262 */       this.codeseg = String.valueOf(this.codeseg) + "\n\t";
+/* 263 */       move(); compareExpr();
+/*     */     } 
+/*     */   }
+/*     */ 
+/*     */   
+/*     */   void compareExpr() throws IOException {
+/* 269 */     String op1 = "", op2 = "";
+/* 270 */     String op = "";
+/* 271 */     boolean not = false;
+/* 272 */     if (this.look.tag == 33) { not = true; move(); }
+/* 273 */      if (this.look.tag == 258 || this.look.tag == 257)
+/* 274 */     { if (this.look.tag == 257) {
+/* 275 */         Id lookId = this.top.get(this.look);
+/* 276 */         if (lookId == null) error(String.valueOf(this.look.toString()) + " РЅРµ РѕРіРѕР»РѕС€РµРЅР°"); 
+/*     */       } 
+/* 278 */       op1 = this.look.toString(); move(); }
+/* 279 */     else { error("СЃРёРЅС‚Р°РєСЃРёС‡РЅР° РїРѕРјРёР»РєР°. РћС‡С–РєСѓС”С‚СЊСЃСЏ С‡РёСЃР»Рѕ, Р·РјС–РЅРЅР° Р°Р±Рѕ РєРѕРЅСЃС‚Р°РЅС‚Р°"); }
+/* 280 */      switch (this.look.tag) {
+/*     */       case 62:
+/* 282 */         if (not) { op = "<="; } else { op = ">"; }
+/* 283 */          move(); break;
+/*     */       case 60:
+/* 285 */         if (not) { op = ">="; } else { op = "<"; }
+/* 286 */          move(); break;
+/*     */       case 263:
+/* 288 */         if (not) { op = "!="; } else { op = "=="; }
+/* 289 */          move(); break;
+/*     */       default:
+/* 291 */         error("СЃРёРЅС‚Р°РєСЃРёС‡РЅР° РїРѕРјРёР»РєР°. РћС‡С–РєСѓС”С‚СЊСЃСЏ РѕРїРµСЂР°С†С–СЏ РїРѕСЂС–РІРЅСЏРЅРЅСЏ"); break;
+/*     */     } 
+/* 293 */     if (this.look.tag == 258 || this.look.tag == 257)
+/* 294 */     { if (this.look.tag == 257) {
+/* 295 */         Id lookId = this.top.get(this.look);
+/* 296 */         if (lookId == null) error(String.valueOf(this.look.toString()) + " РЅРµ РѕРіРѕР»РѕС€РµРЅР°"); 
+/*     */       } 
+/* 298 */       op2 = this.look.toString(); move(); }
+/* 299 */     else { error("СЃРёРЅС‚Р°РєСЃРёС‡РЅР° РїРѕРјРёР»РєР°. РћС‡С–РєСѓС”С‚СЊСЃСЏ С‡РёСЃР»Рѕ, Р·РјС–РЅРЅР° Р°Р±Рѕ РєРѕРЅСЃС‚Р°РЅС‚Р°"); }
+/* 300 */      this.codeseg = String.valueOf(this.codeseg) + "MOV AL, " + op1 + "\n\tCMP AL, " + op2 + "\n\t"; String str1;
+/* 301 */     switch ((str1 = op).hashCode()) { case 60: if (!str1.equals("<")) {
+/*     */           break;
+/*     */         }
+/*     */         
+/* 305 */         this.codeseg = String.valueOf(this.codeseg) + "JNL L" + (label + 1) + "\n\t"; break;
+/*     */       case 62: if (!str1.equals(">"))
+/*     */           break;  this.codeseg = String.valueOf(this.codeseg) + "JNG L" + (label + 1) + "\n\t"; break;
+/*     */       case 1084: if (!str1.equals("!="))
+/* 309 */           break;  this.codeseg = String.valueOf(this.codeseg) + "JE L" + (label + 1) + "\n\t"; break;
+/*     */       case 1921:
+/*     */         if (!str1.equals("<="))
+/*     */           break; 
+/* 313 */         this.codeseg = String.valueOf(this.codeseg) + "JNLE L" + (label + 1) + "\n\t";
+/*     */         break;
+/*     */       case 1952:
+/*     */         if (!str1.equals("=="))
+/*     */           break; 
+/*     */         this.codeseg = String.valueOf(this.codeseg) + "JNE L" + (label + 1) + "\n\t";
+/*     */         break;
+/*     */       case 1983:
+/*     */         if (!str1.equals(">="))
+/*     */           break; 
+/*     */         this.codeseg = String.valueOf(this.codeseg) + "JNGE L" + (label + 1) + "\n\t";
+/*     */         break; }
+/*     */   
+/*     */   }
+/*     */ }
 
-	void move() throws IOException { look = lex.scan(); } // сканування чергового символа
 
-	void error(String s) { throw new Error("near line "+Lexer.line+": "+s);  } 
-
-	void match(int t) throws IOException { // перевірка чи сканований символ - t
-		if( look.tag == t ) move();        // якщо так, сканування наступного символа
-		else { error("syntax error");        // якщо ні, вивід про помилку
-		System.exit(0); }
-   }
-	
-	public void program() throws IOException {  
-		block(); // program -> block
-		out.write(dataseg+codeseg+"\n\tMOV AX,4C00h\n\tINT 21h\nEND Main\nEND"); // вивід асемблерного коду
-	}
-
-	void block() throws IOException { 
-		blockId++;
-		match('{');  
-		Table savedTable = top;  
-		top = new Table(top);
-		while ( look.tag != '}' ) stmt();
-		match('}');
-		for(int i=unPush.size()-1; i>=0; i--){
-			RenamedId thisId = unPush.get(i);
-			if( blockId == thisId.blockNum ) {
-				codeseg += "POP DX\n\tMOV "+thisId.id+", DL\n\t";
-				unPush.remove(i);
-			} else if ( blockId > thisId.blockNum ) break;	
-		}
-		top = savedTable;
-		blockId--;
-	}
-
-	void decls() throws IOException { 
-		while( look.tag == Tag.BASIC ) { 
-			Id id = new Id();
-			id.type = look.toString();
-			match(Tag.BASIC);
-			id.lexeme = look.toString();
-			boolean initialized = false;
-			if ( top.get(look) != null ) {
-				codeseg += "MOV DL, "+id.lexeme+"\n\tPUSH DX\n\t";
-				unPush.add(new RenamedId(id.lexeme,blockId));
-				initialized = true;
-			} 
-			top.put( look, id );
-			if(initialized == false) dataseg += "\t" + look.toString() + " DB ";
-			match(Tag.ID);
-			match('=');
-			if(initialized == false) dataseg += look.toString() + "\n";
-			else codeseg += "MOV DL, "+look.toString()+"\n\tMOV "+unPush.get(unPush.size()-1).id+", DL\n\t";
-			match(Tag.NUM);
-			match(';');
-			
-		}
-	}
-	
-	void stmt() throws IOException {
-		switch( look.tag ) {
-	      case ';':
-	         move(); break;  
-	      case '{':
-		     block(); break; 
-	      case Tag.BASIC:
-	    	  decls(); break;
-	      case Tag.IF:
-	    	  ifConstr(); break; 
-	      case Tag.DO:
-	    	  doWhileConstr(); break;  
-	      case Tag.WHILE:
-	    	  whileConstr(); break;
-		  default:
-			  rightConstr();	       
-		}
-	}
-	
-	void ifConstr() throws IOException {
-		match(Tag.IF);
-	      match('(');
-	      logicExpr();
-	      match(')');
-	      stmt();
-	      if( look.tag == Tag.ELSE ) {
-	    	  codeseg += "JMP L"+(label+2)+"\n\t\nL"+(++label)+":\n\t";
-	    	  move();
-	    	  stmt();
-	      }
-	      codeseg += "\nL"+ (++label) + ":\n\t";
-	}
-	
-	void whileConstr() throws IOException {
-		int doLabel = ++label;
-		codeseg += "\nL"+ doLabel + ":\n\t";
-		match(Tag.WHILE);
-		match('(');
-		logicExpr();
-		match(')');
-		stmt();
-		codeseg += "JMP L"+doLabel+"\n\nL"+ (++label) + ":\n\t";	
-	}
-	
-	void doWhileConstr() throws IOException {
-		blockId++;
-		int doLabel = ++label;
-		codeseg += "\nL"+ doLabel + ":\n\t";
-		match(Tag.DO);
-		Table savedTable = top;  
-		top = new Table(top);
-		while ( look.tag != Tag.WHILE ) stmt();
-		match(Tag.WHILE);
-		match('(');
-		logicExpr();
-		match(')');
-		for(int i=unPush.size()-1; i>=0; i--){
-			RenamedId thisId = unPush.get(i);
-			if( blockId == thisId.blockNum ) {
-				codeseg += "POP DX\n\tMOV "+thisId.id+", DL\n\t";
-			} else if ( blockId > thisId.blockNum ) break;	
-		}
-		codeseg += "JMP L"+doLabel+"\n\nL"+ (++label) + ":\n\t";
-		for(int i=unPush.size()-1; i>=0; i--){
-			RenamedId thisId = unPush.get(i);
-			if( blockId == thisId.blockNum ) {
-				codeseg += "POP DX\n\tMOV "+thisId.id+", DL\n\t";
-				unPush.remove(i);
-			} else if ( blockId > thisId.blockNum ) break;	
-		}
-		top = savedTable;
-		blockId--;
-	}
-	
-	void rightConstr() throws IOException {
-		Id id = top.get(look);
-		  if( id == null ) error(look.toString() + " undeclared");
-			if ( id.type.equals("const") ) {
-				  error(look.toString() + " is const. You can't redefine it!");
-		  }
-		  match(Tag.ID);
-		  if ( look.tag == Tag.INC ) {
-			  codeseg += "INC "+ id.lexeme + "\n\t";
-			  move(); return;
-		  } else { 
-			  match('=');
-			  arithmeticExpr(id);
-			  codeseg += "MOV "+ id + ", AL\n\t";
-			  match(';');
-		  } 
-	}
-	
-	void arithmeticExpr(Id id) throws IOException {
-		  String op1 = "", op2 = "", op = "";
-		  boolean bracket = false;
-		  op1 = leftArithmeticExpr(id, op1);
-		  rightArithmeticExpr(id, op, op1, op2, bracket);
-	}
-	
-	String leftArithmeticExpr(Id id, String op1) throws IOException {
-		boolean constant = false;
-		Id lookId = top.get(look);
-		if ( look.tag == Tag.NUM || look.tag == Tag.ID ) {
-			if (look.tag == Tag.ID ) { 
-				if( lookId == null ) error(look.toString() + " undeclared");
-				if(lookId.type.equals("const")) constant=true;
-			}
-			op1 = look.toString(); move();
-		} else if ( look.tag == Tag.BASIC ) {
-			error("syntax error. You can't declare variable here! I'm tired of your obtusity. Goodbuy, loser!");
-			System.exit(0);
-		} else error("syntax error. Expected number, variable or constant");
-		if ( look.tag == Tag.INC ) {
-			if(constant) error(lookId.toString() + " is const. You can't redefine it!");
-			op1 = id.lexeme; codeseg += "INC "+ op1 + "\n\t"; move();
-		} codeseg += "MOV AL, "+ op1 + "\n\t";
-		return op1;
-	}
-	
-	void rightArithmeticExpr(Id id, String op, String op1, String op2, boolean bracket) throws IOException {
-		while( look.tag == '+' || look.tag == '-' ) {
-			switch( look.tag ) {
-				case '+':	
-					op = "+"; move(); break;
-				case '-':
-					op = "-"; move(); break;
-			}
-			boolean constant = false;
-			Id lookId = top.get(look);
-			if ( look.tag == Tag.NUM || look.tag == Tag.ID ) {
-				if (look.tag == Tag.ID ) { 
-					if( lookId == null ) error(look.toString() + " undeclared");
-					if(lookId.type.equals("const")) constant=true;
-				}
-				op2 = look.toString(); move();
-			} else if ( look.tag == '(' ) {
-				op = brackets(op, id); bracket = true;
-			}  else if ( look.tag == Tag.BASIC ) {
-				error("syntax error. You can't declare variable here!");
-			} else error("syntax error. Expected bracket, number, variable or constant."); 
-			if ( look.tag == Tag.INC ) {
-				if(constant) error(lookId.toString() + " is const. You can't redefine it!");
-				op1 = id.lexeme; codeseg += "INC "+ op1 + "\n\t"; move();
-			}  
-			switch( op ) {
-				case "+":	
-					if (bracket == false) 
-						codeseg += "MOV BL, "+ op2 + "\n\t";
-					else bracket = false;
-					codeseg += "ADD AL, BL\n\t"; break;
-				case "-":
-					if (bracket == false)
-						codeseg += "MOV BL, "+ op2 + "\n\t";
-					else bracket = false;
-					codeseg += "SUB AL, BL\n\t"; break;
-			}  	
-		}
-	}
-	
-	String brackets(String op, Id id) throws IOException {
-		String op1 = "", op2 = "", oldOp = op;
-		boolean bracket = false;
-		codeseg += "PUSH AX\n\t"; move();
-		op1 = leftArithmeticExpr(id, op1);
-		rightArithmeticExpr(id, op, op1, op2, bracket); 
-		while ( look.tag != ')' ) {
-			rightArithmeticExpr(id, op, op1, op2, bracket);	
-		} move(); codeseg += "MOV BL, AL\n\tPOP AX\n\t"; return oldOp; 
-	}
-	
-	void logicExpr() throws IOException {
-		compareExpr();
-	    while( look.tag == Tag.OR || look.tag == Tag.AND ) {
-	    	if ( look.tag == Tag.OR ) {
-	    		codeseg += "\n\tJMP L"+(label+2)+"\nL"+ (++label) + ":\n\t";
-	    		move(); ++label; compareExpr();
-	    		codeseg += "\nL"+ label + ":\n\t";
-	    	} else {
-	    		codeseg += "\n\t";
-	    		move(); compareExpr();
-	    	}
-	    }
-	}
-	
-	void compareExpr() throws IOException {
-		String op1 = "", op2 = "";
-		String op = "";
-		boolean not = false;
-		if ( look.tag == '!' ) { not = true; move(); }
-		if ( look.tag == Tag.NUM || look.tag == Tag.ID ) {
-			if (look.tag == Tag.ID ) { 
-				Id lookId = top.get(look);
-				if( lookId == null ) error(look.toString() + " undeclared");
-			}
-			op1 = look.toString(); move();
-		} else error("syntax error. Expected number, variable or constant");
-		switch( look.tag ) {
-			case '>':
-				if(not) op = "<="; else op = ">";	
-				move(); break;
-			case '<':
-				if(not) op = ">="; else op = "<";	
-				move(); break;
-			case Tag.EQ:
-				if(not) op = "!="; else op = "=="; 
-				move(); break;
-			default:
-				error("syntax error. Expected compare operation");
-		}
-		if ( look.tag == Tag.NUM || look.tag == Tag.ID ) {
-			if (look.tag == Tag.ID ) {
-				Id lookId = top.get(look);
-				if( lookId == null ) error(look.toString() + " undeclared");
-			}
-			op2 = look.toString(); move();
-		} else error("syntax error. Expected number, variable or constant");
-		codeseg += "MOV AL, " + op1 + "\n\tCMP AL, " + op2 + "\n\t";
-		switch( op ) {
-		case ">":
-			codeseg += "JNG L" + (label+1) + "\n\t"; break;
-		case "<":
-			codeseg += "JNL L" + (label+1) + "\n\t"; break;
-		case "==":
-			codeseg += "JNE L" + (label+1) + "\n\t"; break;
-		case "!=":
-			codeseg += "JE L" + (label+1) + "\n\t"; break;
-		case ">=":
-			codeseg += "JNGE L" + (label+1) + "\n\t"; break;
-		case "<=":
-			codeseg += "JNLE L" + (label+1) + "\n\t"; break;
-		}
-	}
-}
-
-class RenamedId { 
-	public String id;
-	public int blockNum;
-	public RenamedId(String myId, int myNum){ id = myId; blockNum = myNum; }
-}
+/* Location:              C:\Users\User\Downloads\YYC.jar!\Parser.class
+ * Java compiler version: 8 (52.0)
+ * JD-Core Version:       1.1.3
+ */

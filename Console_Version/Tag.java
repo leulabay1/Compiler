@@ -1,14 +1,29 @@
-//визначає константи для токенів
 public class Tag {
-	   public final static int
-	      // список конструкцій вхідної мови,
-	      // які складаються більше, ніж з 1 символа (0-255)
-	      BASIC = 256,              // базові типи
-	      ID    = 257,              // ідентифікатори
-	      NUM   = 258,              // числа
-	      DO    = 259, WHILE = 260, // оператор циклу (do while)
-	      IF    = 261, ELSE  = 262, // умовний оператор (if else)
-	      EQ    = 263,              // порівняння (==)
-	      AND   = 264, OR    = 265, // булеві І (&&) та АБО (||)
-	      INC   = 266;              // інкремент (++) 	 
+  public static final int BASIC = 256;
+  
+  public static final int ID = 257;
+  
+  public static final int NUM = 258;
+  
+  public static final int DO = 259;
+  
+  public static final int WHILE = 260;
+  
+  public static final int IF = 261;
+  
+  public static final int ELSE = 262;
+  
+  public static final int EQ = 263;
+  
+  public static final int AND = 264;
+  
+  public static final int OR = 265;
+  
+  public static final int INC = 266;
 }
+
+
+/* Location:              C:\Users\User\Downloads\YYC.jar!\Tag.class
+ * Java compiler version: 8 (52.0)
+ * JD-Core Version:       1.1.3
+ */
